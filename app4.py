@@ -12,6 +12,7 @@ import find_significant as fs
 
 samples_sheet = 'SAMPLES'
 observations_sheet = 'OBSERVATIONS'
+antibodies_sheet = 'ANTIBODIES'
 
 app = dash.Dash()
 app.scripts.config.serve_locally = True
@@ -78,8 +79,10 @@ app.layout = html.Div([
     ]),
     html.Div([
         html.Div(id='hidden-div3', style={'display': 'none'})
+    ]),
+    html.Div([
+        html.Div(id='hidden-div4', style={'display': 'none'})
     ])
-
 ], className='container')
 
 
@@ -101,6 +104,15 @@ def populate_hidden_div(contents):
         observations_df = pd.read_excel(io.BytesIO(base64.b64decode(content_string)), sheetname=observations_sheet)
         print(observations_df.head())
         return observations_df.to_json(date_format='iso', orient='split')
+
+
+@app.callback(Output('hidden-div4', 'children'),
+              [Input('upload', 'contents')])
+def populate_hidden_div(contents):
+    if contents is not None:
+        content_type, content_string = contents.split(',')
+        antibodies_df = pd.read_excel(io.BytesIO(base64.b64decode(content_string)), sheetname=antibodies_sheet)
+        return antibodies_df.to_json(date_format='iso', orient='split')
 
 
 @app.callback(Output(component_id='slider-pre', component_property='children'),
@@ -152,6 +164,8 @@ def populate_table1(value, samples_json, observations_json):
         return return_div
 
 
+# to populate a hidden-div1 that contains significant proteins dataframe
+# we need hidden-div1 to populate table2
 @app.callback(Output(component_id='hidden-div1', component_property='children'),
               [
                   Input('slider', 'value')
@@ -167,7 +181,8 @@ def populate_hidden_div1(value, samples_json, observations_json):
         significant_proteins_df = fs.get_significant_proteins_dash(samples_df=samples_df, observations_df=observations_df, regulation_factor=value)
         return significant_proteins_df.to_json(date_format='iso', orient='split')
 
-
+# populate table2
+# we need hidden-div4 (antibodies df) to create a href with right url
 @app.callback(Output(component_id='table2-pre', component_property='children'),
               [
                   Input('submit-button', 'n_clicks')
@@ -177,19 +192,21 @@ def populate_hidden_div1(value, samples_json, observations_json):
                   State('table1a', 'selected_row_indices'),
                   State('table1b', 'rows'),
                   State('table1b', 'selected_row_indices'),
-                  State('hidden-div1', 'children')
+                  State('hidden-div1', 'children'),
+                  State('hidden-div4', 'children')
               ])
-def update_table(n_clicks, rows1a, selected_row_indices1a, rows1b, selected_row_indices1b, sig_proteins_json):
+def update_table(n_clicks, rows1a, selected_row_indices1a, rows1b, selected_row_indices1b, sig_proteins_json, antibodies_json):
     print("*************************")
     if sig_proteins_json is not None and selected_row_indices1a is not None and len(selected_row_indices1a) > 0:
         value = rows1a[selected_row_indices1a[0]]['name']
         significant_proteins_df = pd.read_json(sig_proteins_json, orient='split')
+        antibodies_df = pd.read_json(antibodies_json, orient='split')
         protein_df = significant_proteins_df.loc[significant_proteins_df['name'] == value]
         cols = ['name', 'sample', 'cell_type', 'strain', 'concentration', 'time', 'value', 'ratio']
         protein_df = protein_df[cols]
         table_div = html.Div(dt.DataTable(rows=protein_df.to_dict('records'), id='table2', row_selectable=True, filterable=True, sortable=True))
         pre = html.Pre(id='empty-line2')
-        heading1a = html.H6(value, className="gs-header gs-text-header padded")
+        heading1a = html.H6(create_link(value,antibodies_df), className="gs-header gs-text-header padded")
         graph = dcc.Graph(figure=fs.draw_antibody_graph(df=protein_df), id='antibody-graph')
         graph_div = html.Div(graph)
         return_div = html.Div([pre, heading1a, table_div, pre, graph_div])
@@ -197,16 +214,18 @@ def update_table(n_clicks, rows1a, selected_row_indices1a, rows1b, selected_row_
     if sig_proteins_json is not None and selected_row_indices1b is not None and len(selected_row_indices1b) > 0:
         value = rows1b[selected_row_indices1b[0]]['name']
         significant_proteins_df = pd.read_json(sig_proteins_json, orient='split')
+        antibodies_df = pd.read_json(antibodies_json, orient='split')
         protein_df = significant_proteins_df.loc[significant_proteins_df['name'] == value]
         cols = ['name', 'sample', 'cell_type', 'strain', 'concentration', 'time', 'value', 'ratio']
         protein_df = protein_df[cols]
         table_div = html.Div(dt.DataTable(rows=protein_df.to_dict('records'), id='table2', row_selectable=True, filterable=True, sortable=True))
         pre = html.Pre(id='empty-line2')
-        heading1a = html.H6(value, className="gs-header gs-text-header padded")
+        heading1a = html.H6(create_link(value,antibodies_df), className="gs-header gs-text-header padded")
         graph = dcc.Graph(figure=fs.draw_antibody_graph(df=protein_df), id='antibody-graph')
         graph_div = html.Div(graph)
         return_div = html.Div([pre, heading1a, table_div, pre, graph_div])
         return return_div
+
 
 @app.callback(Output(component_id='antibody-graph-pre', component_property='children'),
               [Input('table2', 'rows'),
@@ -222,6 +241,27 @@ def update_figure(rows, selected_row_indices):
         pre = html.Pre(id='empty-line3')
         return_div = html.Div([pre])
     return return_div
+
+
+def create_link(value, antibodies_df):
+    print(value)
+    antibody = antibodies_df.loc[antibodies_df['Antibody_Shortname'] == value]
+    print(antibody)
+    if antibody is not None:
+        company = antibody['Company'].values[0]
+        print(company)
+        if company == 'CellSig':
+            catalog_id = str(antibody['CatalogID'].values[0])
+            print(catalog_id)
+            url = 'http://www.cellsignal.com/product/productDetail.jsp?productId='+catalog_id
+            print(url)
+            link = html.A(href=url, children=value)
+            print(link)
+        else:
+            link = value
+    else:
+        link = value
+    return link
 
 
 # start Flask server
