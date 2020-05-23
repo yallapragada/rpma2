@@ -7,3 +7,4 @@
 	simultaneously in a quantitative manner when high-quality 
 	antibodies are available.
  * Work performed in collaboration with [Dr. Ramin Hakami](https://cos.gmu.edu/ncbid/people/ramin-hakami)
+ * See data folder for a template of data file that this application can process
